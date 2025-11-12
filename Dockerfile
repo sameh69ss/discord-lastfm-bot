@@ -32,6 +32,9 @@ COPY . .
 # Run the TypeScript build script
 RUN npm run build
 
+EXPOSE 8080
+
+
 # Default command to run when the container starts
 # This will start the BOT. We will override this for the auth server.
 CMD ["node", "dist/index.js"]
