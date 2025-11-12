@@ -5,6 +5,7 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "auth": "ts-node src/scripts/authserver.ts",
+    "build": "npx tsc",
     "dev": "nodemon --watch src --exec ts-node src/index.ts"
   },
   "dependencies": {
