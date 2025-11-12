@@ -85,4 +85,5 @@ app.get("/callback", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`🌐 Local auth server running on http://localhost:${PORT}/callback`);
   console.log("   Waiting for Cloudflared service to connect...");
+  console.log("Authserver PID:", process.pid);
 });

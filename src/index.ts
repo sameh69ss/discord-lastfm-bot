@@ -346,8 +346,9 @@ export function setNextAvatar() {
 // ready
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user?.tag}`);
+  console.log("Bot PID:", process.pid);
 
-
+  
   setNextAvatar();
   setInterval(() => setNextAvatar(), 1800000);
 });
