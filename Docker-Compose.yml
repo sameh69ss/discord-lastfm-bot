@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  bot:
+    build: .
+    container_name: lastfm-bot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"  # Auth server
+    volumes:
+      - ./data:/app/data  # Persist crowns.json, data.json, callback.json
+      - ./bot/avatars:/app/bot/avatars  # If updating avatars
+    env_file:
+      - .env  # Or set individually below
+    # environment:  # Uncomment and add secrets if not using env_file
+    #   - DISCORD_TOKEN=your_token
+    #   - LASTFM_API_KEY=your_key
+    #   # Add all from .env

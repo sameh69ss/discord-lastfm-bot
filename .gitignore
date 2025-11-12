@@ -1,0 +1,5 @@
+node_modules
+.env
+data/*.json  # Persist these via Railway volumes or env
+bot/avatars/*  # If large; otherwise include for cycling
+*.log
