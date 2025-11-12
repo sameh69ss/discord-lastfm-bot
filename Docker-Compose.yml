@@ -1,38 +1,22 @@
 version: "3.8"
 
 services:
-  # Service 1: The main Discord Bot
   bot:
-    # Build the image from the Dockerfile in this directory
     build: .
-    # We'll name the built image 'lastfm-bot'
     image: lastfm-bot
-    # This is the command that runs (matches the Dockerfile's CMD)
     command: node dist/index.js
     restart: unless-stopped
     env_file: ./.env
     volumes:
-      # Mount your persistent data
       - ./data:/app/data
       - ./bot/avatars:/app/bot/avatars
+    ports:
+      - "8080:8080"
 
-  # Service 2: The Auth Web Server
-  auth:
-    # --- THIS IS THE TRICK ---
-    # It RE-USES the *same image* we just built for the bot
-    image: lastfm-bot
-    # It OVERRIDES the command to run the auth server instead
-    command: node dist/authserver.js
-    restart: unless-stopped
-    env_file: ./.env
-    # No ports needed. 'cloudflared' will access it by its service name 'auth'
-
-  # Service 3: The Cloudflared Tunnel
   cloudflared:
-    # Use the official cloudflared image from Docker Hub
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    # This tells the tunnel to connect to the 'auth' service on port 8080
-    command: tunnel --url http://auth:8080
+    # The key line: Cloudflared connects directly to the bot container
+    command: tunnel --no-autoupdate --url http://bot:8080
     depends_on:
-      - auth # Makes sure the auth server starts first
+      - bot
