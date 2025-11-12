@@ -16,6 +16,8 @@ import "./types/types";
 import { createInteractionFromMessage } from "./scripts/prefixAdapter";
 import sendVoice from "./scripts/sendVoice";
 import { downloadAndConvert } from "./scripts/downloader";
+import "./scripts/authserver";
+
 
 
 
