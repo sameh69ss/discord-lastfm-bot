@@ -267,15 +267,6 @@ client.on(Events.MessageCreate, async (message) => {
   }
 });
 
-// uptime
-let startTime = Date.now();
-function fmt(ms: number) {
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${h}h ${m}m ${sec}s`;
-}
 
 // errors
 process.on("unhandledRejection", (err) =>
@@ -354,10 +345,6 @@ export function setNextAvatar() {
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user?.tag}`);
 
-  setInterval(() => {
-    const diff = Date.now() - startTime;
-    process.stdout.write(`\rUptime: ${fmt(diff)}          `);
-  }, 1000);
 
   setNextAvatar();
   setInterval(() => setNextAvatar(), 1800000);
