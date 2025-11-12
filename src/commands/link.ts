@@ -2,9 +2,10 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, Message, TextChannel } from "discord.js";
 import crypto from "crypto";
 import fs from "fs";
-import { LASTFM_API_KEY, pendingAuth } from "../index";
+import { LASTFM_API_KEY} from "../index";
 import { createInteractionFromMessage } from "../scripts/prefixAdapter";
 import path from "path";
+import { pendingAuth } from "../scripts/sharedState";
 
 const cmd = {
   data: new SlashCommandBuilder()
