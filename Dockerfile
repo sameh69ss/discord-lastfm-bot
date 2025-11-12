@@ -1,40 +1,37 @@
-# Use Node.js 20 on Alpine (lightweight)
-FROM node:20-alpine
+# Use a Node.js 18 image based on Debian (Bullseye)
+# This is MUCH more reliable for 'node-canvas' than Alpine
+FROM node:18-bullseye-slim
 
 # Install system dependencies
-RUN apk add --no-cache \
+# - 'ffmpeg' (which includes ffprobe)
+# - 'build-essential' (for compiling)
+# - The other packages are required by node-canvas
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    ffprobe \
-    python3 \
-    make \
-    g++ \
-    cairo-dev \
-    pango-dev \
-    libjpeg-turbo-dev \
-    giflib-dev \
-    pixman-dev \
-    wget \
-    bash
+    build-essential \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install cloudflared for auth tunnel
-RUN wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && \
-    chmod +x /usr/local/bin/cloudflared
-
-# Set workdir
+# Set the working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package.json and package-lock.json
 COPY package*.json ./
-RUN npm install
 
-# Copy source code
+# Install npm dependencies using 'ci' (clean install)
+RUN npm ci
+
+# Copy the rest of your project's code
 COPY . .
 
-# Build TypeScript (adjust if your output is different)
-RUN npx tsc
+# Run the TypeScript build script
+RUN npm run build
 
-# Expose auth server
-EXPOSE 8080
-
-# Start bot
+# Default command to run when the container starts
+# This will start the BOT. We will override this for the auth server.
 CMD ["node", "dist/index.js"]

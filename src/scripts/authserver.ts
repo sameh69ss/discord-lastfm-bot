@@ -5,9 +5,7 @@ import crypto from "crypto";
 import "dotenv/config";
 import { linkUser } from "./storage";
 import { pendingAuth } from "../index";
-import { spawn } from "child_process";
-import fs from "fs";
-import path from "path";
+// Removed 'spawn', 'fs', and 'path' imports, as Docker Compose handles this now.
 
 const app = express();
 const PORT = 8080;
@@ -81,61 +79,10 @@ app.get("/callback", async (req, res) => {
   }
 });
 
-// ✏️ Update .env + callback.json
-function updateEnvCallbackBase(publicUrl: string) {
-  const envPath = ".env";
-  const jsonPath = path.join(__dirname, "../../data/callback.json");
-  let envData = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
-  const newLine = `CALLBACK_BASE="${publicUrl}"`;
-
-  if (envData.includes("CALLBACK_BASE="))
-    envData = envData.replace(/CALLBACK_BASE=.*/g, newLine);
-  else envData += `\n${newLine}\n`;
-
-  fs.writeFileSync(envPath, envData, "utf8");
-  fs.writeFileSync(jsonPath, JSON.stringify({ CALLBACK_BASE: publicUrl }, null, 2));
-
-  console.log(`📝 Updated CALLBACK_BASE → ${publicUrl}`);
-}
-
-// 🚀 Start Express + Cloudflare Tunnel
+// 🚀 Start Express
+// All the old logic for spawning cloudflared and updating .env is removed.
+// Docker Compose now handles the tunnel.
 app.listen(PORT, () => {
   console.log(`🌐 Local auth server running on http://localhost:${PORT}/callback`);
-
-  const cloudflaredPath = "C:\\Users\\moha\\AppData\\Roaming\\npm\\cloudflared.cmd";
-  const cloudflare = spawn("cmd.exe", [
-    "/c",
-    cloudflaredPath,
-    "tunnel",
-    "--url",
-    `http://localhost:${PORT}`,
-  ]);
-
-  let outputBuffer = "";
-  let foundUrl = false;
-
-  const checkOutput = (chunk: Buffer) => {
-    const text = chunk.toString();
-    outputBuffer += text;
-    process.stdout.write(text);
-
-    const match = text.match(/https:\/\/[^\s]+\.trycloudflare\.com/);
-    if (match && !foundUrl) {
-      foundUrl = true;
-      const publicUrl = match[0];
-      updateEnvCallbackBase(publicUrl);
-      console.log(`✅ Cloudflare tunnel ready at: ${publicUrl}`);
-    }
-  };
-
-  cloudflare.stdout.on("data", checkOutput);
-  cloudflare.stderr.on("data", checkOutput);
-
-  cloudflare.on("error", (err) =>
-    console.error("🔥 Failed to start Cloudflare tunnel:", err)
-  );
-
-  cloudflare.on("close", (code) =>
-    console.log(`⚠️ Cloudflare tunnel closed (code ${code})`)
-  );
+  console.log("   Waiting for Cloudflared service to connect...");
 });
