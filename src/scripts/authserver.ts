@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 import crypto from "crypto";
 import "dotenv/config";
 import { linkUser } from "./storage";
-import { pendingAuth } from "../index";
+import { pendingAuth } from "./sharedState";
 // Removed 'spawn', 'fs', and 'path' imports, as Docker Compose handles this now.
 
 const app = express();

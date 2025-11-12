@@ -73,7 +73,7 @@ export const CALLBACK_BASE = process.env.CALLBACK_BASE || "http://localhost:8080
 export const PREFIX = process.env.PREFIX || ".fm";
 
 // shared maps
-export const pendingAuth = new Map<string, string>();
+import { pendingAuth } from "./scripts/sharedState";
 export const previewMap = new Map<string, string>();
 
 // client setup
