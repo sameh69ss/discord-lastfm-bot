@@ -49,27 +49,28 @@ const cmd = {
 
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
+      let dmSent = false;
       // Try to DM the user the link
       try {
         await interaction.user.send({ embeds: [embed], components: [row] });
-      } catch {
-        return interaction.reply({
-          content:
-            "⚠️ I couldn’t DM you the login link. Please enable DMs and try again.",
-          ephemeral: true,
-        });
-      }
+        dmSent = true;
+      } catch {}
 
-      // Respond in chat (ephemeral if slash)
-      if (isPrefix) {
-        await interaction.reply({
-          content: "✅ Check your DMs for the Last.fm login link!",
-        });
+      if (dmSent) {
+        // Respond in chat (ephemeral if slash)
+        const content = "✅ Check your DMs for the Last.fm login link!";
+        if (isPrefix) {
+          await interaction.reply({ content });
+        } else {
+          await interaction.reply({ content, ephemeral: true });
+        }
       } else {
-        await interaction.reply({
-          content: "✅ Check your DMs for the Last.fm login link!",
-          ephemeral: true,
-        });
+        // If DM failed, send in channel instead
+        const replyOptions = { embeds: [embed], components: [row] };
+        if (!isPrefix) {
+          (replyOptions as any).ephemeral = true;
+        }
+        await interaction.reply(replyOptions);
       }
     } catch (err) {
       console.error("Link error:", err);
