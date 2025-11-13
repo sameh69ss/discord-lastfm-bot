@@ -399,24 +399,6 @@ const cmd = {
       const globalListeners = safeNum(albumData.listeners);
       const globalPlaycount = safeNum(albumData.playcount);
       let releaseDateRaw = albumData?.wiki?.published || albumData?.releasedate?.trim() || null;
-      let releaseDate = "Unknown";
-      if (releaseDateRaw) {
-        releaseDateRaw = releaseDateRaw.replace(/,.*$/, '').trim();
-        const monthMap: { [key: string]: string } = {
-          Jan: 'January', Feb: 'February', Mar: 'March', Apr: 'April', May: 'May', Jun: 'June',
-          Jul: 'July', Aug: 'August', Sep: 'September', Oct: 'October', Nov: 'November', Dec: 'December'
-        };
-        const match = releaseDateRaw.match(/(\d{1,2}) (\w{3}) (\d{4})/);
-        if (match) {
-          const day = parseInt(match[1]);
-          const monAbbr = match[2];
-          const year = match[3];
-          const monFull = monthMap[monAbbr] || monAbbr;
-          releaseDate = `${monFull} ${day}, ${year}`;
-        } else {
-          releaseDate = releaseDateRaw;
-        }
-      }
 
       let isSingle = false;
       let isEP = false;
@@ -454,6 +436,36 @@ const cmd = {
           tracksArray = spotifyTracks.map((t) => ({ name: t.name, duration: t.duration, track_number: t.track_number }));
         }
       }
+      
+      // --- START: Timestamp Logic ---
+      let releaseDateString = "Unknown";
+      let dateToParse: string | null = null;
+
+      if (spotifyReleaseDate) {
+          if (spotifyReleaseDate.match(/^\d{4}$/)) { 
+              dateToParse = `${spotifyReleaseDate}-01-01`; 
+          } else if (spotifyReleaseDate.match(/^\d{4}-\d{2}$/)) {
+              dateToParse = `${spotifyReleaseDate}-01`;
+          } else {
+              dateToParse = spotifyReleaseDate;
+          }
+      }
+      
+      if (!dateToParse && releaseDateRaw) {
+          dateToParse = releaseDateRaw.replace(/,.*$/, '').trim();
+      }
+
+      if (dateToParse) {
+          const timestampMs = Date.parse(dateToParse);
+          if (!isNaN(timestampMs)) {
+              const timestampSec = Math.floor(timestampMs / 1000);
+              releaseDateString = `<t:${timestampSec}:D>`;
+          } else if (releaseDateRaw) {
+              // Fallback for unparsable strings like "Spring 2023"
+              releaseDateString = releaseDateRaw.replace(/,.*$/, '').trim();
+          }
+      }
+      // --- END: Timestamp Logic ---
 
       // If Spotify didn't produce a tracklist, fallback to Last.fm logic (your existing multi-step fallback)
       if (!tracksArray || tracksArray.length === 0) {
@@ -567,14 +579,6 @@ const cmd = {
             if (mbLabel) spotifyLabel = mbLabel;
           }
         } catch {}
-      }
-
-      if (spotifyReleaseDate) {
-        const [y, m, d] = (spotifyReleaseDate || "").split("-");
-        if (y && m && d) {
-          const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-          releaseDate = `${monthNames[parseInt(m) - 1]} ${parseInt(d)}, ${y}`;
-        }
       }
 
       // plays by user
@@ -751,7 +755,7 @@ const cmd = {
       const embed = new EmbedBuilder()
         .setColor(0xd51007)
         .setTitle(`${isEP ? 'EP' : isSingle ? 'Single' : 'Album'}: ${artist} - ${album} for ${targetUsername}`)
-        .setDescription(`Release date: ${releaseDate}`)
+        .setDescription(`Release date: ${releaseDateString}`)
         .setURL(albumUrlLastfm);
 
       if (coverUrl) embed.setThumbnail(coverUrl);
@@ -785,13 +789,13 @@ const cmd = {
       const btnTracks = new ButtonBuilder()
         .setCustomId("album_tracks")
         .setLabel("Album tracks")
-        .setEmoji("💿")
-        .setStyle(ButtonStyle.Primary);
+        .setEmoji("🎶")
+        .setStyle(ButtonStyle.Secondary);
       const btnCover = new ButtonBuilder()
         .setCustomId("album_cover")
         .setLabel("Cover")
         .setEmoji("🖼️")
-        .setStyle(ButtonStyle.Primary);
+        .setStyle(ButtonStyle.Secondary);
       const albumRow = new ActionRowBuilder<ButtonBuilder>().addComponents(btnTracks, btnCover);
 
       if (isPrefix) {
@@ -854,7 +858,7 @@ const cmd = {
         const prevBtn = new ButtonBuilder().setCustomId("prev").setEmoji("◀️").setStyle(ButtonStyle.Secondary).setDisabled(page <= 1);
         const nextBtn = new ButtonBuilder().setCustomId("next").setEmoji("▶️").setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages);
         const lastBtn = new ButtonBuilder().setCustomId("last").setEmoji("⏭️").setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages);
-        const returnBtn = new ButtonBuilder().setCustomId("return").setLabel("Return to album").setStyle(ButtonStyle.Primary);
+        const returnBtn = new ButtonBuilder().setCustomId("return").setEmoji("💽").setLabel("Return to album").setStyle(ButtonStyle.Secondary);
         return [new ActionRowBuilder<ButtonBuilder>().addComponents(firstBtn, prevBtn, nextBtn, lastBtn), new ActionRowBuilder<ButtonBuilder>().addComponents(returnBtn)];
       };
 
@@ -878,13 +882,14 @@ const cmd = {
         coverEmbed.setFooter({ text: `Album image source: ${albumImageSource}` });
 
         const spotifyBtn = new ButtonBuilder()
-          .setLabel("View on Spotify")
+          .setLabel("Spotify")
           .setStyle(ButtonStyle.Link)
+          .setEmoji("<:Spotify_icon:1438540261713248390>")
           .setURL(
             spotifyAlbumUrl || `https://open.spotify.com/search/${encodeURIComponent(`${artist} ${album}`)}`
           );
 
-        const returnBtn = new ButtonBuilder().setCustomId("return").setLabel("Return to album").setStyle(ButtonStyle.Primary);
+        const returnBtn = new ButtonBuilder().setCustomId("return").setEmoji("💽").setLabel("Return to album").setStyle(ButtonStyle.Secondary);
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(spotifyBtn, returnBtn);
 
