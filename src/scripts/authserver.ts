@@ -5,10 +5,10 @@ import crypto from "crypto";
 import "dotenv/config";
 import { linkUser } from "./storage";
 import { pendingAuth } from "./sharedState";
-// Removed 'spawn', 'fs', and 'path' imports, as Docker Compose handles this now.
 
 const app = express();
-const PORT = 8080;
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
+const CALLBACK_URL = process.env.CALLBACK_URL || "https://discord-lastfm-bot-production.up.railway.app/callback";
 
 const { LASTFM_API_KEY, LASTFM_SHARED_SECRET } = process.env;
 
@@ -23,27 +23,28 @@ interface LastfmSessionResponse {
   message?: string;
 }
 
+// ✅ Health check (optional but useful for Railway)
+app.get("/", (_, res) => {
+  res.send("✅ Auth server running");
+});
+
 // 🔗 Handle Last.fm callback
 app.get("/callback", async (req, res) => {
   const token = req.query.token as string | undefined;
   const state = req.query.state as string | undefined;
 
   if (!token || !state) {
-    res.status(400).send("Missing token or state.");
-    return;
+    return res.status(400).send("Missing token or state.");
   }
 
   const uid = pendingAuth.get(state);
   if (!uid) {
-    res.status(400).send("Invalid or expired state token.");
-    return;
+    return res.status(400).send("Invalid or expired state token.");
   }
 
   const sig = crypto
     .createHash("md5")
-    .update(
-      `api_key${LASTFM_API_KEY}methodauth.getSessiontoken${token}${LASTFM_SHARED_SECRET}`
-    )
+    .update(`api_key${LASTFM_API_KEY}methodauth.getSessiontoken${token}${LASTFM_SHARED_SECRET}`)
     .digest("hex");
 
   try {
@@ -55,8 +56,7 @@ app.get("/callback", async (req, res) => {
 
     if (!data.session) {
       console.error("⚠️ Failed to get session from Last.fm:", data);
-      res.status(400).send(`Failed to link account. ${data.message || ""}`);
-      return;
+      return res.status(400).send(`Failed to link account. ${data.message || ""}`);
     }
 
     const { name: username, key: sessionKey } = data.session;
@@ -68,8 +68,8 @@ app.get("/callback", async (req, res) => {
     res.send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; margin-top: 3em;">
-          <h2>تم تهكير جهازك بنجاح يرياسة</h2>
-          <p>نهارك سعيد.</p>
+          <h2>✅ Successfully linked your Last.fm account!</h2>
+          <p>You can now close this page and return to Discord.</p>
         </body>
       </html>
     `);
@@ -79,11 +79,8 @@ app.get("/callback", async (req, res) => {
   }
 });
 
-// 🚀 Start Express
-// All the old logic for spawning cloudflared and updating .env is removed.
-// Docker Compose now handles the tunnel.
-app.listen(PORT, () => {
-  console.log(`🌐 Local auth server running on http://localhost:${PORT}/callback`);
-  console.log("   Waiting for Cloudflared service to connect...");
-  console.log("Authserver PID:", process.pid);
+// 🚀 Start Express server on all interfaces (needed for Railway)
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🌐 Auth server running on port ${PORT}`);
+  console.log(`Callback URL: ${CALLBACK_URL}`);
 });

@@ -4,19 +4,10 @@ services:
   bot:
     build: .
     image: lastfm-bot
-    command: node dist/index.js
     restart: unless-stopped
     env_file: ./.env
+    ports:
+      - "8080:8080"
     volumes:
       - ./data:/app/data
       - ./bot/avatars:/app/bot/avatars
-    ports:
-      - "8080:8080"
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    # The key line: Cloudflared connects directly to the bot container
-    command: tunnel --no-autoupdate --url http://bot:8080
-    depends_on:
-      - bot

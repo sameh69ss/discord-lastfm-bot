@@ -1,11 +1,7 @@
-# Use a Node.js 18 image based on Debian (Bullseye)
-# This is MUCH more reliable for 'node-canvas' than Alpine
+# Use Node 18 (Debian-based for node-canvas compatibility)
 FROM node:18-bullseye-slim
 
-# Install system dependencies
-# - 'ffmpeg' (which includes ffprobe)
-# - 'build-essential' (for compiling)
-# - The other packages are required by node-canvas
+# Install dependencies required for node-canvas and ffmpeg
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     build-essential \
@@ -17,24 +13,24 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy package files
 COPY package*.json ./
 
-# Install npm dependencies using 'ci' (clean install)
+# Clean install dependencies
 RUN npm ci
 
-# Copy the rest of your project's code
+# Copy project files
 COPY . .
 
-# Run the TypeScript build script
+# Build TypeScript
 RUN npm run build
 
+# Expose the auth server port
 EXPOSE 8080
 
-
-# Default command to run when the container starts
-# This will start the BOT. We will override this for the auth server.
+# Start both the bot and the auth server
+# You can import the auth server inside index.js, or start both here
 CMD ["node", "dist/index.js"]
