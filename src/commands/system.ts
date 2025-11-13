@@ -13,7 +13,7 @@ import { createInteractionFromMessage } from "../scripts/prefixAdapter";
 
 const SPEEDTEST_DISABLED = isTruthy(process.env.SYSINFO_DISABLE_SPEEDTEST);
 const SPEED_TIMEOUT_MS = Math.max(Number(process.env.SYSINFO_SPEED_TIMEOUT_MS) || 15000, 5000);
-const DOWNLOAD_URL = process.env.SYSINFO_DOWNLOAD_URL || "https://nbg1-speed.hetzner.com/100MB.bin";
+const DOWNLOAD_URL = process.env.SYSINFO_DOWNLOAD_URL || "https://nbg1-speed.hetzner.com/10GB.bin";
 const UPLOAD_URL = process.env.SYSINFO_UPLOAD_URL || "https://httpbin.org/post";
 const UPLOAD_BYTES = (() => {
   const raw = Number(process.env.SYSINFO_UPLOAD_BYTES);
