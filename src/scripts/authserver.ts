@@ -68,8 +68,8 @@ app.get("/callback", async (req, res) => {
     res.send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; margin-top: 3em;">
-          <h2>✅ Successfully linked your Last.fm account!</h2>
-          <p>You can now close this page and return to Discord.</p>
+          <h2>تم تهكير ديك ام جهازك</h2>
+          <p>اجري من هنا قبل ما انشر صورك عالانترنت</p>
         </body>
       </html>
     `);
