@@ -12,14 +12,32 @@ import fetch from "node-fetch";
 import { getUser } from "../scripts/storage";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 dotenv.config();
+
+// This path points to the file storing friend relationships
+const friendsPath = path.resolve(__dirname, "../../data/friend.json");
+
+// Reads the friend.json storage file
+function getFriendsStorage() {
+  if (!fs.existsSync(friendsPath)) {
+    fs.writeFileSync(friendsPath, "{}");
+  }
+  return JSON.parse(fs.readFileSync(friendsPath, "utf8"));
+}
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY!;
 const LASTFM_SHARED_SECRET = process.env.LASTFM_SHARED_SECRET!;
 const MONTHS_TO_SHOW = 6;
 const FM_COLOR = 0xd51007;
-const AVG_TRACK_DURATION_SEC = 180;
+const DEFAULT_TRACK_DURATION_SEC = 180; // Fallback if no durations available
+const DEFAULT_LASTFM_AVATAR_HASHES = new Set<string>([
+  // Known placeholder hashes (default profile + generic art fallback)
+  "818148bf682d429dc215c1705eb27b98",
+  "2a96cbd8b46e442fc41c2b86b821562f",
+]);
 
 export const data = new SlashCommandBuilder()
   .setName("profile")
@@ -74,6 +92,48 @@ function getMonthStartEnd(now: Date, monthOffset: number): { start: number; end:
   return { start, end, name };
 }
 
+function isDefaultLastfmAvatar(url?: string | null): boolean {
+  if (!url) return true;
+  const trimmed = url.trim();
+  if (!trimmed) return true;
+
+  try {
+    const parsed = new URL(trimmed);
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol !== "https:" && protocol !== "http:") return true;
+
+    const pathname = parsed.pathname.toLowerCase();
+    // Last.fm serves default avatars from /avatar<size>s/ folders; treat them as placeholders.
+    if (pathname.includes("/avatar")) {
+      return true;
+    }
+
+    const filename = path.basename(parsed.pathname).split(".")[0]?.toLowerCase();
+    if (!filename) return true;
+
+    return DEFAULT_LASTFM_AVATAR_HASHES.has(filename);
+  } catch {
+    return true;
+  }
+}
+
+function isAccessoryBaseTypeError(err: any): boolean {
+  if (!err || typeof err !== "object") return false;
+  if ((err as any).code !== 50035) return false;
+  const message = String((err as any).message ?? "");
+  if (message.includes("accessory[BASE_TYPE_REQUIRED]")) {
+    return true;
+  }
+  const raw = (err as any).rawError;
+  if (!raw) return false;
+  try {
+    const serialized = JSON.stringify(raw);
+    return serialized.includes("accessory") && serialized.includes("BASE_TYPE_REQUIRED");
+  } catch {
+    return false;
+  }
+}
+
 async function getMostActiveDay(username: string, sessionKey: string): Promise<string> {
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const dayCounts = new Array(7).fill(0);
@@ -123,7 +183,8 @@ async function getMostActiveDay(username: string, sessionKey: string): Promise<s
 }
 
 async function getMonthlyStats(username: string, sessionKey: string, start: number, end: number) {
-  const params: Record<string, string> = {
+  // First, get total plays with limit=1
+  let params: Record<string, string> = {
     method: "user.getrecenttracks",
     api_key: LASTFM_API_KEY,
     user: username,
@@ -139,14 +200,73 @@ async function getMonthlyStats(username: string, sessionKey: string, start: numb
   });
   sig += LASTFM_SHARED_SECRET;
 
-  const api_sig = crypto.createHash("md5").update(sig, "utf-8").digest("hex");
-  const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&sk=${sessionKey}&from=${start}&to=${end}&limit=1&api_sig=${api_sig}&format=json`;
+  let api_sig = crypto.createHash("md5").update(sig, "utf-8").digest("hex");
+  let url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&sk=${sessionKey}&from=${start}&to=${end}&limit=1&api_sig=${api_sig}&format=json`;
   
-  const res = await fetch(url);
-  const data = await res.json() as any;
+  let res = await fetch(url);
+  let data = await res.json() as any;
   const plays = safeNum(data.recenttracks?.["@attr"]?.total);
-  const totalSec = plays * AVG_TRACK_DURATION_SEC;
-  return { plays, totalSec };
+
+  if (plays === 0) {
+    return { plays, totalSec: 0 };
+  }
+
+  // Now, page through recent tracks to sum durations
+  let totalSec = 0;
+  let fetchedTracks = 0;
+  let sumKnownDur = 0;
+  let countKnownDur = 0;
+  const limit = 200;
+  const maxPages = 50; // Limit to avoid too many API calls
+  let page = 1;
+
+  while (true) {
+    params = {
+      method: "user.getrecenttracks",
+      api_key: LASTFM_API_KEY,
+      user: username,
+      sk: sessionKey,
+      from: start.toString(),
+      to: end.toString(),
+      limit: limit.toString(),
+      page: page.toString()
+    };
+
+    sig = "";
+    Object.keys(params).sort().forEach(key => {
+      sig += key + params[key];
+    });
+    sig += LASTFM_SHARED_SECRET;
+
+    api_sig = crypto.createHash("md5").update(sig, "utf-8").digest("hex");
+    url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&sk=${sessionKey}&from=${start}&to=${end}&limit=${limit}&page=${page}&api_sig=${api_sig}&format=json`;
+
+    res = await fetch(url);
+    data = await res.json() as any;
+    const tracks = data.recenttracks?.track || [];
+    if (tracks.length === 0) break;
+
+    for (const track of tracks) {
+      const d = safeNum(track.duration);
+      totalSec += d > 0 ? d : DEFAULT_TRACK_DURATION_SEC;
+      if (d > 0) {
+        sumKnownDur += d;
+        countKnownDur++;
+      }
+      fetchedTracks++;
+    }
+
+    if (tracks.length < limit || page >= maxPages) break;
+    page++;
+  }
+
+  // If not all fetched, estimate remaining using average known duration
+  if (fetchedTracks < plays) {
+    const avgDur = countKnownDur > 0 ? sumKnownDur / countKnownDur : DEFAULT_TRACK_DURATION_SEC;
+    totalSec += (plays - fetchedTracks) * avgDur;
+  }
+
+  return { plays, totalSec: Math.round(totalSec) };
 }
 
 async function execute(interaction: ChatInputCommandInteraction | any) {
@@ -240,11 +360,22 @@ async function execute(interaction: ChatInputCommandInteraction | any) {
     // Most active day
     const mostActiveDay = await getMostActiveDay(username, sessionKey);
 
-    // Befriended count
-    const friendsUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getfriends&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&limit=1&format=json`;
-    const friendsRes = await fetch(friendsUrl);
-    const friendsData = await friendsRes.json() as any;
-    const friendCount = safeNum(friendsData.friends?.["@attr"]?.total);
+    // Befriended by count (number of users who have added this user as a friend)
+    let friendCount = 0;
+    const friendsStorage = getFriendsStorage(); // Use the correct storage function
+    const targetId = target.id; // The Discord ID of the user being profiled
+    const targetUsername = linkedUser.username.toLowerCase(); // The Last.fm username being profiled
+
+    // Loop through the friends storage object
+    for (const adderId in friendsStorage) { // adderId is the Discord ID of the person who added friends
+      if (adderId !== targetId) { // Check that it's not the user themselves
+        const friendList: string[] = friendsStorage[adderId]; // This is an array of last.fm usernames
+        // Check if the array is valid and includes the target's last.fm username
+        if (Array.isArray(friendList) && friendList.includes(targetUsername)) {
+          friendCount++;
+        }
+      }
+    }
 
     // Pre-fetch monthly stats
     const monthlyStats: { name: string; plays: number; time: string }[] = [];
@@ -264,28 +395,32 @@ async function execute(interaction: ChatInputCommandInteraction | any) {
       monthlyStats.push({ name, plays, time: timeStr });
     }
 
-    // --- (FIX 1 START) ---
-    const profileHeaderComponent: any = {
-      type: 9,
-      components: [
-        {
-          type: 10,
-          content: `## [${username}](${lastfmUrl})\n**${formatNumber(totalScrobbles)}** scrobbles\nSince <t:${registered}:D>`
-        }
-      ]
-    };
+    // Build profile header conditionally
+    const headerText = `## [${username}](${lastfmUrl})\n**${formatNumber(totalScrobbles)}** scrobbles\nSince <t:${registered}:D>`;
+    let profileHeaderComponent: any;
 
-    // Add accessory ONLY if profilePic exists, is a real URL, AND is not a default avatar
-    if (profilePic && profilePic.includes("https://") && !profilePic.includes("/avatar")) {
-      profileHeaderComponent.accessory = {
-        type: 11,
-        media: {
-          url: profilePic
+    if (typeof profilePic === "string" && !isDefaultLastfmAvatar(profilePic)) {
+      profileHeaderComponent = {
+        type: 9,
+        components: [
+          {
+            type: 10,
+            content: headerText
+          }
+        ],
+        accessory: {
+          type: 11,
+          media: {
+            url: profilePic
+          }
         }
       };
+    } else {
+      profileHeaderComponent = {
+        type: 10,
+        content: headerText
+      };
     }
-    // --- (FIX 1 END) ---
-
 
     // Profile components with type 17 container
     const profileComponents = [
@@ -357,27 +492,32 @@ async function execute(interaction: ChatInputCommandInteraction | any) {
       await btnInt.deferUpdate();
       if (btnInt.customId === "history") {
 
-        // --- (FIX 2 START) ---
-        const historyHeaderComponent: any = {
-          type: 9,
-          components: [
-            {
-              type: 10,
-              content: `## [${username}](${lastfmUrl})'s history\n**${formatNumber(totalScrobbles)}** scrobbles\nSince <t:${registered}:D>`
-            }
-          ]
-        };
+        // Build history header conditionally
+        const historyHeaderText = `## [${username}](${lastfmUrl})'s history\n**${formatNumber(totalScrobbles)}** scrobbles\nSince <t:${registered}:D>`;
+        let historyHeaderComponent: any;
 
-        // Add accessory ONLY if profilePic exists, is a real URL, AND is not a default avatar
-        if (profilePic && profilePic.includes("https://") && !profilePic.includes("/avatar")) {
-          historyHeaderComponent.accessory = {
-            type: 11,
-            media: {
-              url: profilePic
+        if (typeof profilePic === "string" && !isDefaultLastfmAvatar(profilePic)) {
+          historyHeaderComponent = {
+            type: 9,
+            components: [
+              {
+                type: 10,
+                content: historyHeaderText
+              }
+            ],
+            accessory: {
+              type: 11,
+              media: {
+                url: profilePic
+              }
             }
           };
+        } else {
+          historyHeaderComponent = {
+            type: 10,
+            content: historyHeaderText
+          };
         }
-        // --- (FIX 2 END) ---
 
         const historyComponents = [
           {
