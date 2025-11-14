@@ -10,13 +10,22 @@ import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 dotenv.config();
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY!;
+const LASTFM_SHARED_SECRET = process.env.LASTFM_SHARED_SECRET!;
 
 const dataPath = path.resolve(__dirname, "../../data/data.json"); // User links storage
 const friendsPath = path.resolve(__dirname, "../../data/friend.json"); // Separate friends storage
+
+// Utility function to safely convert to number
+function safeNum(v: unknown): number {
+  if (v == null) return 0;
+  const n = Number(v);
+  return Number.isNaN(n) ? 0 : n;
+}
 
 function getUserStorage() {
   if (!fs.existsSync(dataPath)) {
@@ -36,21 +45,51 @@ function saveFriendsStorage(storage: any) {
   fs.writeFileSync(friendsPath, JSON.stringify(storage, null, 2));
 }
 
-async function validateLastfmUser(username: string): Promise<{ valid: boolean; public: boolean }> {
+async function validateLastfmUser(username: string, sessionKey?: string): Promise<{ valid: boolean; accessible: boolean }> {
   try {
     const infoUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getinfo&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&format=json`;
     const infoRes = await fetch(infoUrl);
     const infoData = await infoRes.json() as any;
-    if (infoData.error) return { valid: false, public: false };
+    
+    // 1. Check if user exists (API error)
+    if (infoData.error) return { valid: false, accessible: false };
 
-    const recentUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&limit=1&format=json`;
-    const recentRes = await fetch(recentUrl);
-    const recentData = await recentRes.json() as any;
-    if (recentData.error) return { valid: true, public: false };
+    // 2. NEW: Check if user has any scrobbles
+    const totalScrobbles = safeNum(infoData.user?.playcount);
+    if (totalScrobbles === 0) {
+      return { valid: false, accessible: false }; // Treat as invalid if 0 scrobbles
+    }
 
-    return { valid: true, public: true };
+    // Optional: Check recent tracks if session key is provided
+    let accessible = false;
+    if (sessionKey) {
+      let recentUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&api_key=${LASTFM_API_KEY}&user=${encodeURIComponent(username)}&limit=1&format=json`;
+      const params: Record<string, string> = {
+        method: "user.getrecenttracks",
+        api_key: LASTFM_API_KEY,
+        user: username,
+        sk: sessionKey,
+        limit: "1",
+      };
+      let sig = "";
+      Object.keys(params).sort().forEach(key => {
+        sig += key + params[key];
+      });
+      sig += LASTFM_SHARED_SECRET;
+      const api_sig = crypto.createHash("md5").update(sig, "utf-8").digest("hex");
+      recentUrl += `&sk=${sessionKey}&api_sig=${api_sig}`;
+
+      const recentRes = await fetch(recentUrl);
+      const recentData = await recentRes.json() as any;
+      accessible = !recentData.error;
+    } else {
+      // For non-linked, we don't require accessible recent tracks anymore
+      accessible = true; // Assume accessible if profile exists
+    }
+
+    return { valid: true, accessible };
   } catch {
-    return { valid: false, public: false };
+    return { valid: false, accessible: false };
   }
 }
 
@@ -95,15 +134,27 @@ const cmd = {
 
       for (let f of friendsToAdd) {
         let targetUsername: string | null = null;
+        let targetSessionKey: string | undefined = undefined;
         let input = f;
 
         if (f.startsWith("<@") && f.endsWith(">")) {
           const targetId = f.slice(2, -1).replace("!", "");
-          targetUsername = userStorage[targetId]?.username || null;
+          const targetData = userStorage[targetId];
+          targetUsername = targetData?.username || null;
+          targetSessionKey = targetData?.sessionKey;
         } else if (/^\d+$/.test(f)) {
-          targetUsername = userStorage[f]?.username || null;
+          const targetData = userStorage[f];
+          targetUsername = targetData?.username || null;
+          targetSessionKey = targetData?.sessionKey;
         } else {
           targetUsername = f;
+          // Check if this username is linked
+          for (const uid in userStorage) {
+            if (userStorage[uid].username.toLowerCase() === f.toLowerCase()) {
+              targetSessionKey = userStorage[uid].sessionKey;
+              break;
+            }
+          }
         }
 
         if (!targetUsername) {
@@ -117,13 +168,14 @@ const cmd = {
 
         if (friendsStorage[callerId].includes(lowerTarget)) continue; // Already added
 
-        const { valid, public: isPublic } = await validateLastfmUser(targetUsername);
+        const { valid, accessible } = await validateLastfmUser(targetUsername, targetSessionKey);
 
-        if (!valid || !isPublic) {
-          failed.push(targetUsername);
+        if (!valid) {
+          failed.push(input); // This will now catch 0-scrobble accounts
           continue;
         }
 
+        // Add even if not accessible, as long as valid
         friendsStorage[callerId].push(lowerTarget);
         added.push(`*[${targetUsername}](https://last.fm/user/${encodeURIComponent(targetUsername)})*`);
       }
@@ -136,7 +188,7 @@ const cmd = {
       }
       if (failed.length > 0) {
         if (description) description += "\n\n";
-        description += `Could not add ${failed.length} friend${failed.length > 1 ? "s" : ""}. Please ensure you spelled their name correctly, that they exist on Last.fm and that their Last.fm recent tracks are not set to private.\n\n* ${failed.join("\n* ")}`;
+        description += `Could not add ${failed.length} friend${failed.length > 1 ? "s" : ""}. Please ensure you spelled their name correctly and that they exist on Last.fm (and have at least 1 scrobble).\n\n* ${failed.join("\n* ")}`;
       }
 
       if (!description) {
