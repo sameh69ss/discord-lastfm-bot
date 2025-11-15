@@ -32,7 +32,7 @@ const cmd = {
 
       const CALLBACK_BASE =
         process.env.CALLBACK_URL?.replace(/\/callback$/, "") ||
-        "https://discord-lastfm-bot-production.up.railway.app";
+        "https://discord-lastfm-bot-production-132e.up.railway.app";
 
       const authUrl = `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&cb=${CALLBACK_BASE}/callback?state=${state}`;
 
