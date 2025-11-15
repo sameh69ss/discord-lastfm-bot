@@ -8,7 +8,7 @@ import { pendingAuth } from "./sharedState";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
-const CALLBACK_URL = process.env.CALLBACK_URL || "https://discord-lastfm-bot-production.up.railway.app/callback";
+const CALLBACK_URL = process.env.CALLBACK_URL || "https://discord-lastfm-bot-production-132e.up.railway.app/callback";
 
 const { LASTFM_API_KEY, LASTFM_SHARED_SECRET } = process.env;
 
