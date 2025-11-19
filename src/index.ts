@@ -14,14 +14,16 @@ import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
 import dotenv from "dotenv";
-import fetch from "node-fetch"; // Ensure this is installed
+import fetch from "node-fetch";
 import "./types/types";
 import { createInteractionFromMessage } from "./scripts/prefixAdapter";
 import sendVoice from "./scripts/sendVoice";
 import { downloadAndConvert } from "./scripts/downloader";
 import "./scripts/authserver";
-// New imports for the feature
 import { getUser, getLinkedUserIds } from "./scripts/storage";
+
+// +++ ADDED: Import the handler for the genre picker +++
+import { handleGenrePicker } from "./handlers/genrePickerHandler";
 
 // --- CROWNS DATA ---
 const crownsFilePath = path.join(__dirname, "../data/crowns.json");
@@ -179,8 +181,11 @@ fs.watch(commandsPath, (event, filename) => {
   }
 });
 
-// slash + button interactions
+/* -------------------------------------------------------------------------- */
+/* INTERACTION HANDLER                                                       */
+/* -------------------------------------------------------------------------- */
 client.on(Events.InteractionCreate, async (interaction) => {
+  // 1. Chat Commands
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -198,6 +203,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
+  // 2. Buttons
   if (interaction.isButton()) {
     const [customId, ...args] = interaction.customId.split(":");
 
@@ -229,6 +235,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (oggPath && fs.existsSync(oggPath)) await fsp.unlink(oggPath);
         previewMap.delete(originalInteractionId);
       }
+    }
+  }
+
+  // 3. +++ ADDED: Select Menus (Dropdowns) +++
+  else if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === 'genre-picker') {
+      await handleGenrePicker(interaction);
     }
   }
 });
@@ -385,8 +398,6 @@ async function cycleBotFeature() {
   }
 }
 
-// This replaces your old setNextAvatar logic but keeps the name
-// in case other commands import it.
 export async function setNextAvatar() {
     return cycleBotFeature();
 }
