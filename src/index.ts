@@ -7,23 +7,23 @@ import {
   Collection,
   Events,
   Partials,
+  EmbedBuilder,
+  TextChannel,
 } from "discord.js";
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
 import dotenv from "dotenv";
+import fetch from "node-fetch"; // Ensure this is installed
 import "./types/types";
 import { createInteractionFromMessage } from "./scripts/prefixAdapter";
 import sendVoice from "./scripts/sendVoice";
 import { downloadAndConvert } from "./scripts/downloader";
 import "./scripts/authserver";
+// New imports for the feature
+import { getUser, getLinkedUserIds } from "./scripts/storage";
 
-
-
-
-
-
-// --- CROWNS DATA (FIXED) ---
+// --- CROWNS DATA ---
 const crownsFilePath = path.join(__dirname, "../data/crowns.json");
 
 export let crowns: {
@@ -32,7 +32,7 @@ export let crowns: {
   };
 } = {};
 
-// Load crowns from the correct path
+// Load crowns
 try {
   if (fs.existsSync(crownsFilePath)) {
     crowns = JSON.parse(fs.readFileSync(crownsFilePath, "utf8"));
@@ -44,7 +44,7 @@ try {
   console.error("🔥 Failed to load crowns.json:", err);
 }
 
-// Save crowns to the correct path
+// Save crowns
 export function saveCrowns() {
   try {
     fs.writeFileSync(crownsFilePath, JSON.stringify(crowns, null, 2));
@@ -52,11 +52,6 @@ export function saveCrowns() {
     console.error("🔥 Failed to save crowns.json:", err);
   }
 }
-
-
-// env loader
-dotenv.config();
-// ... rest of your file
 
 // env loader
 dotenv.config();
@@ -73,6 +68,8 @@ const GUILD_ID = process.env.GUILD_ID;
 export const LASTFM_API_KEY = env("LASTFM_API_KEY");
 export const CALLBACK_BASE = process.env.CALLBACK_BASE || "http://localhost:8080";
 export const PREFIX = process.env.PREFIX || ".fm";
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
 // shared maps
 import { pendingAuth } from "./scripts/sharedState";
@@ -269,7 +266,6 @@ client.on(Events.MessageCreate, async (message) => {
   }
 });
 
-
 // errors
 process.on("unhandledRejection", (err) =>
   console.error("Unhandled rejection:", err)
@@ -278,78 +274,132 @@ process.on("uncaughtException", (err) =>
   console.error("Uncaught exception:", err)
 );
 
-// shuffle util
-function shuffleArray(array: any[]) {
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
+
+/* -------------------------------------------------------------------------- */
+/* FEATURED USER / AVATAR CYCLER                       */
+/* -------------------------------------------------------------------------- */
+
+// Helper to get Spotify token
+async function getSpotifyTokenSimple(): Promise<string | null> {
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) return null;
+  try {
+    const creds = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64");
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${creds}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    const data = (await res.json()) as any;
+    return data.access_token || null;
+  } catch {
+    return null;
   }
 }
 
-// avatar load
-const avatarsDir = path.join(__dirname, "../bot/avatars");
-let avatarFiles: string[] = [];
-try {
-  avatarFiles = fs
-    .readdirSync(avatarsDir)
-    .filter((f) => f.endsWith(".png") || f.endsWith(".jpg") || f.endsWith(".gif"));
+// The main logic function
+async function cycleBotFeature() {
+  try {
+    // 1. Pick a random user
+    const allIds = getLinkedUserIds();
+    if (allIds.length === 0) return;
+    
+    // Try up to 3 times to find a user with a valid track/image
+    for (let i = 0; i < 3; i++) {
+      const randomId = allIds[Math.floor(Math.random() * allIds.length)];
+      const user = getUser(randomId);
+      if (!user) continue;
 
-  if (avatarFiles.length > 0) {
-    shuffleArray(avatarFiles);
-    console.log(`Loaded ${avatarFiles.length} avatars.`);
+      // 2. Fetch Recent Tracks (limit 20 to get a pool)
+      const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(
+        user.username
+      )}&api_key=${LASTFM_API_KEY}&format=json&limit=20`;
+
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = (await res.json()) as any;
+      const tracks = data.recenttracks?.track;
+
+      if (!tracks || !Array.isArray(tracks) || tracks.length === 0) continue;
+
+      // Pick a random track from the recent 20
+      const randomTrack = tracks[Math.floor(Math.random() * tracks.length)];
+      
+      const artistName = randomTrack.artist?.["#text"] || "Unknown";
+      const trackName = randomTrack.name || "Unknown";
+      
+      // 3. Get High Quality Cover (Spotify prefered)
+      let imageUrl: string | null = null;
+      
+      const token = await getSpotifyTokenSimple();
+      if (token) {
+        try {
+          const q = encodeURIComponent(`track:${trackName} artist:${artistName}`);
+          const sRes = await fetch(`https://api.spotify.com/v1/search?q=${q}&type=track&limit=1`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const sData = (await sRes.json()) as any;
+          imageUrl = sData.tracks?.items?.[0]?.album?.images?.[0]?.url || null;
+        } catch {}
+      }
+
+      // Fallback to Last.fm image if Spotify failed
+      if (!imageUrl) {
+        imageUrl = randomTrack.image?.find((img: any) => img.size === "extralarge")?.["#text"] || null;
+      }
+      
+      // If still no image, try next user
+      if (!imageUrl) continue;
+
+      // 4. Update Avatar
+      console.log(`Setting avatar to ${trackName} by ${artistName} (User: ${user.username})`);
+      await client.user?.setAvatar(imageUrl);
+
+      // 5. Send Message to Channel 1425532225864204469
+      const targetChannelId = "1425532225864204469";
+      const channel = client.channels.cache.get(targetChannelId) as TextChannel;
+      
+      if (channel && channel.isTextBased()) {
+          const artistUrl = `https://www.last.fm/music/${encodeURIComponent(artistName)}`;
+          const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artistName)}/_/${encodeURIComponent(trackName)}`;
+          
+          const embed = new EmbedBuilder()
+            .setColor(0xBA2000)
+            .setThumbnail(imageUrl)
+            .addFields({
+                name: "Featured:",
+                value: `[${trackName}](${trackUrl}) \nby [${artistName}](${artistUrl}) \n\nDaily album from ${user.username}`,
+                inline: false
+            });
+
+          await channel.send({ embeds: [embed] });
+      }
+
+      // Success, break loop
+      break;
+    }
+  } catch (err) {
+    console.error("Error cycling bot feature:", err);
   }
-} catch (err) {
-  console.error("Failed to load avatars:", err);
 }
 
-// (This function should be in the block you just moved)
-
-// avatar cycling
-let currentAvatarIndex = 0;
-export function setNextAvatar() {
-  if (avatarFiles.length === 0) {
-    console.log("No avatars to set.");
-    return Promise.reject("No avatars loaded."); // Return a rejected promise
-  }
-
-  const file = avatarFiles[currentAvatarIndex];
-  const avatarPath = path.join(avatarsDir, file);
-  
-  // Get the promise from setAvatar
-  const setPromise = client.user?.setAvatar(avatarPath);
-
-  // Increment index immediately so the next call (manual or auto) gets the next file
-  currentAvatarIndex++;
-  if (currentAvatarIndex >= avatarFiles.length) {
-    shuffleArray(avatarFiles);
-    currentAvatarIndex = 0;
-  }
-
-  if (setPromise) {
-    // Return the promise so the command can await it
-    return setPromise
-      .then(() => {
-        console.log(`Avatar changed to ${file}`);
-        return file; // Resolve with the file name
-      })
-      .catch((e) => {
-        console.error("Avatar error:", e);
-        throw e; // Re-throw for the command's catch block
-      });
-  } else {
-    // Should not happen after login, but good to check
-    return Promise.reject("Client user not available.");
-  }
+// This replaces your old setNextAvatar logic but keeps the name
+// in case other commands import it.
+export async function setNextAvatar() {
+    return cycleBotFeature();
 }
-
 
 // ready
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user?.tag}`);
   console.log("Bot PID:", process.pid);
 
-  
+  // Run immediately on startup
   setNextAvatar();
+
+  // Run every 30 minutes
   setInterval(() => setNextAvatar(), 1800000);
 });
 
