@@ -377,7 +377,7 @@ async function cycleBotFeature() {
       await client.user?.setAvatar(imageUrl);
 
       // 6. Send Message
-      const targetChannelId = "1425532225864204469";
+      const targetChannelId = "1407342430465949706";
       const channel = client.channels.cache.get(targetChannelId) as TextChannel;
       
       if (channel && channel.isTextBased()) {
