@@ -312,38 +312,45 @@ async function getSpotifyTokenSimple(): Promise<string | null> {
   }
 }
 
-// The main logic function
+// In index.ts
+
 async function cycleBotFeature() {
   try {
     // 1. Pick a random user
     const allIds = getLinkedUserIds();
     if (allIds.length === 0) return;
     
-    // Try up to 3 times to find a user with a valid track/image
+    // Try up to 3 times to find a valid track
     for (let i = 0; i < 3; i++) {
       const randomId = allIds[Math.floor(Math.random() * allIds.length)];
       const user = getUser(randomId);
       if (!user) continue;
 
-      // 2. Fetch Recent Tracks (limit 20 to get a pool)
-      const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(
+      // 2. Randomize Period (Week vs Month) & Fetch Top Tracks
+      // This adds variety: sometimes it's a weekly obsession, sometimes a monthly favorite.
+      const periods = ["7day", "1month"];
+      const selectedPeriod = periods[Math.floor(Math.random() * periods.length)];
+
+      // We fetch 'gettoptracks' with limit=50 to get a large pool of options
+      const url = `https://ws.audioscrobbler.com/2.0/?method=user.gettoptracks&user=${encodeURIComponent(
         user.username
-      )}&api_key=${LASTFM_API_KEY}&format=json&limit=20`;
+      )}&api_key=${LASTFM_API_KEY}&format=json&limit=50&period=${selectedPeriod}&sk=${encodeURIComponent(user.sessionKey)}`;
 
       const res = await fetch(url);
       if (!res.ok) continue;
       const data = (await res.json()) as any;
-      const tracks = data.recenttracks?.track;
+      const tracks = data.toptracks?.track; // Note: 'toptracks', not 'recenttracks'
 
       if (!tracks || !Array.isArray(tracks) || tracks.length === 0) continue;
 
-      // Pick a random track from the recent 20
+      // 3. Pick a random track from the Top 50
       const randomTrack = tracks[Math.floor(Math.random() * tracks.length)];
       
-      const artistName = randomTrack.artist?.["#text"] || "Unknown";
+      // Handle different data structures (TopTracks uses .name, Recent uses .#text)
+      const artistName = randomTrack.artist?.name || randomTrack.artist?.["#text"] || "Unknown";
       const trackName = randomTrack.name || "Unknown";
       
-      // 3. Get High Quality Cover (Spotify prefered)
+      // 4. Get High Quality Cover (Spotify preferred)
       let imageUrl: string | null = null;
       
       const token = await getSpotifyTokenSimple();
@@ -358,19 +365,18 @@ async function cycleBotFeature() {
         } catch {}
       }
 
-      // Fallback to Last.fm image if Spotify failed
+      // Fallback to Last.fm image
       if (!imageUrl) {
         imageUrl = randomTrack.image?.find((img: any) => img.size === "extralarge")?.["#text"] || null;
       }
       
-      // If still no image, try next user
       if (!imageUrl) continue;
 
-      // 4. Update Avatar
-      console.log(`Setting avatar to ${trackName} by ${artistName} (User: ${user.username})`);
+      // 5. Update Avatar
+      console.log(`Setting avatar to ${trackName} by ${artistName} (User: ${user.username}, Period: ${selectedPeriod})`);
       await client.user?.setAvatar(imageUrl);
 
-      // 5. Send Message to Channel 1425532225864204469
+      // 6. Send Message
       const targetChannelId = "1425532225864204469";
       const channel = client.channels.cache.get(targetChannelId) as TextChannel;
       
@@ -378,25 +384,28 @@ async function cycleBotFeature() {
           const artistUrl = `https://www.last.fm/music/${encodeURIComponent(artistName)}`;
           const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artistName)}/_/${encodeURIComponent(trackName)}`;
           
+          // Friendly text for the period
+          const periodText = selectedPeriod === "7day" ? "weekly" : "monthly";
+
           const embed = new EmbedBuilder()
             .setColor(0xBA2000)
             .setThumbnail(imageUrl)
             .addFields({
                 name: "Featured:",
-                value: `[${trackName}](${trackUrl}) \nby [${artistName}](${artistUrl}) \n\nDaily album from ${user.username}`,
+                value: `[${trackName}](${trackUrl}) \nby [${artistName}](${artistUrl}) \n\nRandom ${periodText} pick from ${user.username}`,
                 inline: false
             });
 
           await channel.send({ embeds: [embed] });
       }
 
-      // Success, break loop
-      break;
+      break; // Success
     }
   } catch (err) {
     console.error("Error cycling bot feature:", err);
   }
 }
+
 
 export async function setNextAvatar() {
     return cycleBotFeature();
