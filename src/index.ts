@@ -381,7 +381,7 @@ async function cycleBotFeature() {
       console.log(`Setting avatar to ${trackName} by ${artistName}`);
       await client.user?.setAvatar(imageUrl);
 
-      const targetChannelId = "1407342430465949706";
+      const targetChannelId = "1437890858849538068";
       const channel = client.channels.cache.get(targetChannelId) as TextChannel;
       
       if (channel && channel.isTextBased()) {
