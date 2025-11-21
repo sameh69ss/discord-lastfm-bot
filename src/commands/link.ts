@@ -1,94 +1,93 @@
+// src/commands/link.ts
 import {
-  SlashCommandBuilder,
   ChatInputCommandInteraction,
-  Message,
-  TextChannel,
+  SlashCommandBuilder,
+  EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  EmbedBuilder,
+  Message,
+  TextChannel,
 } from "discord.js";
-import crypto from "crypto";
-import { LASTFM_API_KEY } from "../index";
+import fetch from "node-fetch";
 import { createInteractionFromMessage } from "../scripts/prefixAdapter";
-import { pendingAuth } from "../scripts/sharedState";
 
-const cmd = {
-  data: new SlashCommandBuilder()
-    .setName("link")
-    .setDescription("Link your Last.fm account to Discord"),
+// We use the env variables directly
+const API_KEY = process.env.LASTFM_API_KEY;
 
-  async execute(interaction: ChatInputCommandInteraction) {
-    const isPrefix = (interaction as any).isPrefix;
-    if (isPrefix) {
-      try {
-        (interaction.channel as TextChannel).sendTyping();
-      } catch {}
+export const data = new SlashCommandBuilder()
+  .setName("link")
+  .setDescription("Link your Last.fm account to the bot.");
+
+export async function execute(interaction: ChatInputCommandInteraction) {
+  const isPrefix = (interaction as any).isPrefix;
+  
+  // Handle typing/deferring
+  if (isPrefix) {
+    try {
+      (interaction.channel as TextChannel).sendTyping();
+    } catch {}
+  } else {
+    // We use ephemeral so only the user sees their login link
+    await interaction.deferReply({ ephemeral: true });
+  }
+
+  const replyMethod = isPrefix ? "reply" : "editReply";
+
+  if (!API_KEY) {
+    await interaction[replyMethod]("❌ Bot configuration error: LASTFM_API_KEY is missing.");
+    return;
+  }
+
+  try {
+    // 1. Get a Request Token from Last.fm (No signature required for this step)
+    const tokenUrl = `https://ws.audioscrobbler.com/2.0/?method=auth.gettoken&api_key=${API_KEY}&format=json`;
+    const tokenRes = await fetch(tokenUrl);
+    const tokenData = (await tokenRes.json()) as any;
+
+    if (!tokenData.token) {
+      throw new Error(`No token received from Last.fm. Error: ${JSON.stringify(tokenData)}`);
     }
 
-    try {
-      const state = crypto.randomUUID();
-      pendingAuth.set(state, interaction.user.id);
+    const token = tokenData.token;
 
-      const CALLBACK_BASE =
-        process.env.CALLBACK_URL?.replace(/\/callback$/, "") ||
-        "https://discord-lastfm-bot-production-132e.up.railway.app";
+    // 2. Construct the User Approval URL
+    // This is the link the user clicks to say "Yes, I allow this bot"
+    const authUrl = `https://www.last.fm/api/auth/?api_key=${API_KEY}&token=${token}`;
 
-      const authUrl = `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&cb=${CALLBACK_BASE}/callback?state=${state}`;
+    // 3. Create the response Embed
+    const embed = new EmbedBuilder()
+      .setColor(0xd51007)
+      .setTitle("Connect your Last.fm Account")
+      .setDescription(
+        "To link your account, follow these steps:\n\n" +
+        "1. Click **Login with Last.fm** below.\n" +
+        "2. Click **'Yes, Allow Access'** in the browser window.\n" +
+        "3. Come back here and click **'Verify Login'**."
+      )
+      .setFooter({ text: "This link expires in 60 minutes." });
 
-      const embed = new EmbedBuilder()
-        .setTitle("Link Your Last.fm Account")
-        .setDescription("Click the button below to log in and link your account.")
-        .setColor(0xff0000)
-        .setFooter({ text: "Last.fm Account Linking" });
-
-      const button = new ButtonBuilder()
+    // 4. Create Buttons
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
         .setLabel("Login with Last.fm")
         .setStyle(ButtonStyle.Link)
-        .setURL(authUrl);
+        .setURL(authUrl), // Points to Last.fm website
+      new ButtonBuilder()
+        .setCustomId(`verify_login:${token}`) // We store the token in the button ID
+        .setLabel("Verify Login")
+        .setStyle(ButtonStyle.Success)
+    );
 
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
+    await interaction[replyMethod]({ embeds: [embed], components: [row] });
 
-      let dmSent = false;
-      // Try to DM the user the link
-      try {
-        await interaction.user.send({ embeds: [embed], components: [row] });
-        dmSent = true;
-      } catch {}
+  } catch (err) {
+    console.error("Link command failed:", err);
+    await interaction[replyMethod]("❌ Failed to contact Last.fm. Please try again later.");
+  }
+}
 
-      if (dmSent) {
-        // Respond in chat (ephemeral if slash)
-        const content = "✅ Check your DMs for the Last.fm login link!";
-        if (isPrefix) {
-          await interaction.reply({ content });
-        } else {
-          await interaction.reply({ content, ephemeral: true });
-        }
-      } else {
-        // If DM failed, send in channel instead
-        const replyOptions = { embeds: [embed], components: [row] };
-        if (!isPrefix) {
-          (replyOptions as any).ephemeral = true;
-        }
-        await interaction.reply(replyOptions);
-      }
-    } catch (err) {
-      console.error("Link error:", err);
-      const content = "⚠️ Failed to generate link.";
-      if (isPrefix) {
-        await interaction.reply({ content });
-      } else if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content, ephemeral: true });
-      } else {
-        await interaction.editReply({ content });
-      }
-    }
-  },
-
-  async prefixExecute(message: Message, args: string[]) {
-    const interaction = createInteractionFromMessage(message, args);
-    await (this as any).execute(interaction as any);
-  },
-};
-
-export default cmd;
+export async function prefixExecute(message: Message, args: string[]) {
+  const interaction = createInteractionFromMessage(message, args);
+  await execute(interaction as any);
+}
