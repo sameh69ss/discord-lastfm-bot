@@ -15,7 +15,7 @@ import {
 import { SlashCommandStringOption } from "@discordjs/builders";
 import fetch from "node-fetch";
 import { getUser, getLinkedUserIds } from "../scripts/storage";
-import { LASTFM_API_KEY } from "../index";
+import { LASTFM_API_KEY } from "../config";
 import { createInteractionFromMessage, parseArgs } from "../scripts/prefixAdapter";
 
 /* --- Helpers --- */

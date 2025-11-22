@@ -10,7 +10,7 @@ import {
 import { SlashCommandStringOption } from "@discordjs/builders";
 import fetch from "node-fetch";
 import { getUser, getLinkedUserIds } from "../scripts/storage";
-import { LASTFM_API_KEY } from "../index"; // Removed crown imports
+import { LASTFM_API_KEY } from "../config"; // Removed crown imports
 import { createInteractionFromMessage } from "../scripts/prefixAdapter";
 import fs from "fs";
 import path from "path";

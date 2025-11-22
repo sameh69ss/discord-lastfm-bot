@@ -10,8 +10,9 @@ import {
 import { SlashCommandStringOption } from "@discordjs/builders";
 import fetch from "node-fetch";
 import { getUser, getLinkedUserIds } from "../scripts/storage";
-import { LASTFM_API_KEY, crowns, saveCrowns } from "../index";
+import { LASTFM_API_KEY} from "../config";
 import { createInteractionFromMessage } from "../scripts/prefixAdapter";
+import {crowns, saveCrowns } from "../scripts/crowns";
 
 function safeNum(v: unknown): number {
   if (v == null) return 0;
